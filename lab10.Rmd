@@ -7,6 +7,8 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
 ```
 
 # Introducción
@@ -17,13 +19,179 @@ El objetivo principal es contrastar el desempeño de un modelo supervisado tradi
 
 # Metodología
 
-Para el desarrollo del laboratorio se va a estar utilizando el dataset *Adult Income Prediction*, obtenido desde Kaggle. Este dataset proporciona información demográfica, educativa y laboral de personas adultas, con el objetivo de predecir si su ingreso anual es menor o igual a $50,000 o mayor a $50,000. Esto implica que se estará trabajando con un problema de clasificación en donde se analizará si la persona gana más o menos de la cantidad mencionada anteriormente. Esto se evaluará a través de la variable objetivo `income`.
+Para el desarrollo del laboratorio se va a estar utilizando el dataset *Adult Income Prediction*, obtenido desde Kaggle. Este dataset proporciona información demográfica, educativa y laboral de personas adultas, con el objetivo de predecir si su ingreso anual es menor o igual a \$50,000 o mayor a \$50,000. Esto implica que se estará trabajando con un problema de clasificación en donde se analizará si la persona gana más o menos de la cantidad mencionada anteriormente. Esto se evaluará a través de la variable objetivo `income`.
 
 Para realizar el análisis, primero se hará un análisis exploratorio sobre el conjunto de datos, validando su dimensionalidad, distribución de las clases, variables con las que se está trabajando, presencia de valores faltantes, correlaciones, entre otros aspectos. Posteriormente, se aplicarán las transformaciones de datos necesarias para poder trabajar con el modelo supervisado y los otros dos modelos semi-supervisados a utilizar.
 
 Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué clasificación le corresponde a cada una de las observaciones. Dicho esto, para simular un escenario de aprendizaje semi-supervisado, el conjunto de datos primero va a ser dividido en entrenamiento y prueba. A partir del conjunto de entrenamiento se conservará únicamente el 10% de las etiquetas, mientras que el resto será tratado como aquellas que no están disponibles en el dataset. Finalmente, se contrastará el desempeño entre el modelo supervisado y los dos modelos semi-supervisados a implementar.
 
 # Análisis exploratorio de datos
+
+El conjunto de datos seleccionado cumple con las condiciones necesarias para el desarrollo del laboratorio, ya que corresponde a un dataset real, disponible públicamente y con una variable objetivo claramente definida. Además, cuenta con una cantidad suficiente de observaciones y variables para realizar un análisis exploratorio y posteriormente simular un escenario de aprendizaje semi-supervisado. Al tratarse de un problema de clasificación binaria, permite comparar el desempeño de modelos supervisados y semi-supervisados bajo una misma variable objetivo.
+
+```{r carga-datos}
+adult <- read.csv("adult.csv", stringsAsFactors = FALSE)
+
+head(adult)
+```
+
+```{r dimensiones-dataset}
+dimensiones <- data.frame(
+  filas = nrow(adult),
+  columnas = ncol(adult)
+)
+
+knitr::kable(dimensiones)
+```
+
+```{r estructura-variables}
+tipos_variables <- data.frame(
+  variable = names(adult),
+  tipo = sapply(adult, class),
+  row.names = NULL
+)
+
+knitr::kable(tipos_variables)
+```
+
+```{r resumen-categoricas}
+variables_categoricas <- adult %>%
+  select(where(is.character))
+
+resumen_categoricas <- data.frame(
+  variable = names(variables_categoricas),
+  categorias = sapply(variables_categoricas, function(x) length(unique(x))),
+  row.names = NULL
+)
+
+knitr::kable(resumen_categoricas)
+```
+
+```{r valores-desconocidos}
+valores_desconocidos <- data.frame(
+  variable = names(adult),
+  cantidad = sapply(adult, function(x) sum(x == "?", na.rm = TRUE)),
+  row.names = NULL
+) %>%
+  mutate(porcentaje = round(cantidad / nrow(adult) * 100, 2)) %>%
+  filter(cantidad > 0)
+
+knitr::kable(valores_desconocidos)
+```
+
+En el conjunto de datos se identifican valores desconocidos codificados con el símbolo `"?"`. Esto es relevante porque no aparecen como valores `NA`, por lo que deben ser tratados explícitamente durante el preprocesamiento. Estos valores se encuentran principalmente en variables categóricas como `workclass`, `occupation` y `native.country`. Debido a que estas columnas describen características laborales y de origen de las personas, no pueden ignorarse sin antes evaluar su impacto dentro del conjunto de datos.
+
+Para las siguientes fases del análisis, estos valores deberán ser transformados o gestionados antes de entrenar los modelos. Una alternativa posible es eliminar las observaciones con valores desconocidos si representan una proporción baja del total; otra opción sería tratarlos como una categoría adicional o aplicar algún método de imputación. Esta decisión será importante porque los modelos necesitan una representación consistente de los datos para poder aprender patrones útiles.
+
+```{r balance-clases}
+balance_income <- adult %>%
+  count(income) %>%
+  mutate(porcentaje = round(n / sum(n) * 100, 2))
+
+knitr::kable(balance_income)
+```
+
+```{r grafico-balance-clases}
+ggplot(balance_income, aes(x = income, y = n, fill = income)) +
+  geom_col() +
+  geom_text(aes(label = paste0(porcentaje, "%")), vjust = -0.4) +
+  labs(
+    title = "Distribución de la variable objetivo",
+    x = "Ingreso anual",
+    y = "Cantidad de observaciones"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r resumen-numericas}
+variables_numericas <- adult %>%
+  select(where(is.numeric))
+
+resumen_numericas <- data.frame(
+  variable = names(variables_numericas),
+  minimo = sapply(variables_numericas, min),
+  media = round(sapply(variables_numericas, mean), 2),
+  mediana = sapply(variables_numericas, median),
+  maximo = sapply(variables_numericas, max),
+  desviacion_estandar = round(sapply(variables_numericas, sd), 2),
+  row.names = NULL
+)
+
+knitr::kable(resumen_numericas)
+```
+
+```{r distribucion-edad}
+ggplot(adult, aes(x = age, fill = income)) +
+  geom_histogram(bins = 30, alpha = 0.75, position = "identity") +
+  labs(
+    title = "Distribución de edad por nivel de ingreso",
+    x = "Edad",
+    y = "Cantidad de observaciones"
+  ) +
+  theme_minimal()
+```
+
+```{r distribucion-horas-trabajo}
+ggplot(adult, aes(x = hours.per.week, fill = income)) +
+  geom_histogram(bins = 30, alpha = 0.75, position = "identity") +
+  labs(
+    title = "Distribución de horas trabajadas por semana",
+    x = "Horas por semana",
+    y = "Cantidad de observaciones"
+  ) +
+  theme_minimal()
+```
+
+```{r categorias-education}
+adult %>%
+  count(education, income) %>%
+  ggplot(aes(x = reorder(education, n), y = n, fill = income)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Distribución de educación por nivel de ingreso",
+    x = "Nivel educativo",
+    y = "Cantidad de observaciones"
+  ) +
+  theme_minimal()
+```
+
+```{r categorias-workclass}
+adult %>%
+  count(workclass, income) %>%
+  ggplot(aes(x = reorder(workclass, n), y = n, fill = income)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Distribución de tipo de trabajo por nivel de ingreso",
+    x = "Tipo de trabajo",
+    y = "Cantidad de observaciones"
+  ) +
+  theme_minimal()
+```
+
+```{r correlacion-numericas}
+matriz_correlacion <- round(cor(variables_numericas), 3)
+
+knitr::kable(matriz_correlacion)
+```
+
+En cuanto a las variables numéricas, es importante considerar qué representa cada una dentro del conjunto de datos antes de interpretar sus resultados. La variable `capital.gain` representa ganancias de capital que una persona pudo haber recibido durante el año, por ejemplo ingresos asociados a inversiones o venta de activos. Por otro lado, `capital.loss` representa pérdidas de capital reportadas en ese mismo período. En ambos casos se observa que la mayoría de registros tiene valor cero, lo cual indica que no todas las personas reportan este tipo de ingreso o pérdida adicional. Por esta razón, son variables que pueden aportar información relevante para el modelo, pero también deben analizarse con cuidado porque tienen una distribución muy concentrada en cero y algunos valores extremos.
+
+La variable `education.num` corresponde a una representación numérica del nivel educativo. Es decir, no se trata de una medición independiente, sino de una codificación ordinal de la variable `education`, donde valores más altos representan niveles educativos más avanzados. Esto puede ser útil para los modelos porque permite capturar una relación ordenada entre educación e ingreso, aunque también implica que existe información repetida entre `education` y `education.num`, por lo que esta relación debe tomarse en cuenta durante el preprocesamiento.
+
+La variable `fnlwgt`, abreviatura de *final weight*, representa un peso muestral asignado a cada observación. En términos generales, indica cuántas personas de la población podrían estar representadas por un registro con características similares dentro del censo. Por lo tanto, no debe interpretarse como una característica directa de la persona, como la edad o las horas trabajadas, sino como una variable asociada al diseño muestral del conjunto de datos. Debido a esto, su utilidad predictiva puede ser limitada y debe evaluarse con cuidado dentro del modelo.
+
+La variable `hours.per.week` indica la cantidad de horas que la persona trabaja por semana. Esta variable sí tiene una interpretación directa dentro del problema, ya que puede relacionarse con el tipo de empleo, la jornada laboral y potencialmente con el nivel de ingreso. En el resumen estadístico se observa que la mediana es de 40 horas semanales, lo cual indica que una parte importante de las observaciones se concentra alrededor de una jornada laboral estándar.
+
+Respecto a la matriz de correlación, se observa que las relaciones lineales entre las variables numéricas son bajas. La correlación más alta se presenta entre `education.num` y `hours.per.week`, con un valor de 0.148, lo cual sigue siendo una relación débil. También se observa una correlación positiva baja entre `education.num` y `capital.gain` de 0.123. Esto sugiere que, dentro de las variables numéricas, no existe una relación lineal fuerte entre pares de variables.
+
+La variable `fnlwgt` presenta correlaciones cercanas a cero con casi todas las demás variables numéricas, lo que refuerza la idea de que funciona más como un peso muestral que como una característica directamente asociada al ingreso o al comportamiento laboral de la persona. Asimismo, `capital.gain` y `capital.loss` tienen una correlación negativa muy baja de -0.032, por lo que no puede afirmarse que exista una relación lineal importante entre ambas.
+
+En general, el análisis de correlación permite concluir que no existe una fuerte multicolinealidad entre las variables numéricas consideradas. Sin embargo, esto no significa que las variables no sean útiles para la clasificación, ya que el problema puede depender de relaciones no lineales o de interacciones entre variables categóricas y numéricas. Por esta razón, será necesario aplicar modelos capaces de capturar patrones más complejos y evaluar su desempeño mediante métricas de clasificación.
+
+Como cierre del análisis exploratorio, se puede indicar que el dataset es adecuado para el objetivo del laboratorio. Cumple con los requisitos mínimos de tamaño y dimensionalidad, cuenta con una variable objetivo binaria y presenta una combinación de variables numéricas y categóricas que permiten construir un problema de clasificación suficientemente completo. También se identifican aspectos importantes a considerar en las siguientes fases, como el desbalance de clases, la presencia de valores desconocidos codificados como `"?"`, la necesidad de codificar variables categóricas y la existencia de variables numéricas con distribuciones concentradas en cero o con posibles valores extremos. Estos hallazgos serán tomados en cuenta durante el preprocesamiento y el diseño experimental.
 
 # Diseño experimental
 
@@ -40,3 +208,4 @@ Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué
 # Referencias
 
 - Kaggle. *Adult Income Prediction Dataset*. Disponible en: <https://www.kaggle.com/datasets/mosapabdelghany/adult-income-prediction-dataset>
+- UCI Machine Learning Repository. *Adult*. Disponible en: <https://archive.ics.uci.edu/dataset/2/adult>

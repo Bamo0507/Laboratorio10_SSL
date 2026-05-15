@@ -9,6 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(ggplot2)
+library(caret)
 ```
 
 # Introducción
@@ -24,6 +25,14 @@ Para el desarrollo del laboratorio se va a estar utilizando el dataset *Adult In
 Para realizar el análisis, primero se hará un análisis exploratorio sobre el conjunto de datos, validando su dimensionalidad, distribución de las clases, variables con las que se está trabajando, presencia de valores faltantes, correlaciones, entre otros aspectos. Posteriormente, se aplicarán las transformaciones de datos necesarias para poder trabajar con el modelo supervisado y los otros dos modelos semi-supervisados a utilizar.
 
 Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué clasificación le corresponde a cada una de las observaciones. Dicho esto, para simular un escenario de aprendizaje semi-supervisado, el conjunto de datos primero va a ser dividido en entrenamiento y prueba. A partir del conjunto de entrenamiento se conservará únicamente el 10% de las etiquetas, mientras que el resto será tratado como aquellas que no están disponibles en el dataset. Finalmente, se contrastará el desempeño entre el modelo supervisado y los dos modelos semi-supervisados a implementar.
+
+Los algoritmos con los que se va a estar trabajando para el aprendizaje semi-supervisado serán *Label Propagation* y k-means con restricciones. Dadas estas elecciones, al ser algoritmos que dependen de medidas de distancia para evaluar la similitud entre las observaciones, fue necesario aplicar un proceso de limpieza y transformación previo al entrenamiento.
+
+En primer lugar, todas las observaciones que en alguna variable tenían un signo de interrogación serán tratadas como valores desconocidos y se les asignará una categoría adicional. Asimismo, dada la naturaleza de algunas variables, la variable `education` será excluida, ya que su información ya se ve representada de forma ordinal a través de la variable `education.num`.
+
+De igual forma, la variable `fnlwgt` no será utilizada como variable predictora, ya que representa información estadística asociada al censo realizado y no corresponde directamente a una característica de la persona que aporte valor al análisis de clasificación. Esta decisión busca evitar que variables poco interpretables afecten las medidas de distancia utilizadas por los algoritmos a implementar.
+
+Las variables `capital.gain` y `capital.loss` serán transformadas mediante `log1p`, debido a que presentan una alta concentración de valores en cero y algunos valores extremos. Posteriormente, las variables numéricas serán estandarizadas y las variables categóricas serán trabajadas mediante *one-hot encoding*.
 
 # Análisis exploratorio de datos
 
@@ -192,6 +201,44 @@ La variable `fnlwgt` presenta correlaciones cercanas a cero con casi todas las d
 En general, el análisis de correlación permite concluir que no existe una fuerte multicolinealidad entre las variables numéricas consideradas. Sin embargo, esto no significa que las variables no sean útiles para la clasificación, ya que el problema puede depender de relaciones no lineales o de interacciones entre variables categóricas y numéricas. Por esta razón, será necesario aplicar modelos capaces de capturar patrones más complejos y evaluar su desempeño mediante métricas de clasificación.
 
 Como cierre del análisis exploratorio, se puede indicar que el dataset es adecuado para el objetivo del laboratorio. Cumple con los requisitos mínimos de tamaño y dimensionalidad, cuenta con una variable objetivo binaria y presenta una combinación de variables numéricas y categóricas que permiten construir un problema de clasificación suficientemente completo. También se identifican aspectos importantes a considerar en las siguientes fases, como el desbalance de clases, la presencia de valores desconocidos codificados como `"?"`, la necesidad de codificar variables categóricas y la existencia de variables numéricas con distribuciones concentradas en cero o con posibles valores extremos. Estos hallazgos serán tomados en cuenta durante el preprocesamiento y el diseño experimental.
+
+```{r preprocesamiento-datos}
+adult_procesado <- adult %>%
+  mutate(across(where(is.character), ~ ifelse(.x == "?", "NA", .x))) %>%
+  mutate(
+    capital.gain = log1p(capital.gain),
+    capital.loss = log1p(capital.loss),
+    income = factor(income)
+  ) %>%
+  select(-education, -fnlwgt)
+
+variables_predictoras <- adult_procesado %>%
+  select(-income)
+
+dummy_encoder <- dummyVars(~ ., data = variables_predictoras, fullRank = TRUE)
+
+adult_dummy <- data.frame(
+  predict(dummy_encoder, newdata = variables_predictoras)
+)
+
+adult_dummy <- adult_dummy %>%
+  mutate(across(everything(), as.numeric))
+
+preprocesador_escala <- preProcess(adult_dummy, method = c("center", "scale"))
+
+adult_escalado <- data.frame(
+  predict(preprocesador_escala, adult_dummy)
+)
+
+adult_modelo <- adult_escalado %>%
+  mutate(income = adult_procesado$income)
+
+dim(adult_modelo)
+```
+
+```{r vista-datos-procesados}
+head(adult_modelo[, 1:min(10, ncol(adult_modelo))])
+```
 
 # Diseño experimental
 

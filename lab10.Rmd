@@ -1,0 +1,42 @@
+---
+title: "Laboratorio 10: Aprendizaje Semi-Supervisado"
+author: "Bryan Martínez, Adriana Palacios y Nery Molina"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introducción
+
+El presente informe desarrolla el décimo laboratorio del curso de Minería de Datos, en donde se tiene como enfoque experimentar y profundizar en el funcionamiento de los algoritmos de aprendizaje semi-supervisado. En este caso, se trabajará con el conjunto de datos *Adult Income Prediction Dataset*, obtenido desde Kaggle a través del siguiente enlace: <https://www.kaggle.com/datasets/mosapabdelghany/adult-income-prediction-dataset>.
+
+El objetivo principal es contrastar el desempeño de un modelo supervisado tradicional contra dos modelos semi-supervisados. Esta comparación es posible porque el conjunto de datos cuenta con etiquetas conocidas para la variable objetivo, lo que permite simular un escenario semi-supervisado ocultando una proporción de dichas etiquetas durante el entrenamiento. De esta manera, se podrá analizar cómo se comportan los modelos cuando únicamente disponen de una fracción reducida de datos etiquetados y el resto de observaciones se trata como información no etiquetada.
+
+# Metodología
+
+Para el desarrollo del laboratorio se va a estar utilizando el dataset *Adult Income Prediction*, obtenido desde Kaggle. Este dataset proporciona información demográfica, educativa y laboral de personas adultas, con el objetivo de predecir si su ingreso anual es menor o igual a $50,000 o mayor a $50,000. Esto implica que se estará trabajando con un problema de clasificación en donde se analizará si la persona gana más o menos de la cantidad mencionada anteriormente. Esto se evaluará a través de la variable objetivo `income`.
+
+Para realizar el análisis, primero se hará un análisis exploratorio sobre el conjunto de datos, validando su dimensionalidad, distribución de las clases, variables con las que se está trabajando, presencia de valores faltantes, correlaciones, entre otros aspectos. Posteriormente, se aplicarán las transformaciones de datos necesarias para poder trabajar con el modelo supervisado y los otros dos modelos semi-supervisados a utilizar.
+
+Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué clasificación le corresponde a cada una de las observaciones. Dicho esto, para simular un escenario de aprendizaje semi-supervisado, el conjunto de datos primero va a ser dividido en entrenamiento y prueba. A partir del conjunto de entrenamiento se conservará únicamente el 10% de las etiquetas, mientras que el resto será tratado como aquellas que no están disponibles en el dataset. Finalmente, se contrastará el desempeño entre el modelo supervisado y los dos modelos semi-supervisados a implementar.
+
+# Análisis exploratorio de datos
+
+# Diseño experimental
+
+# Resultados
+
+# Discusión
+
+# Conclusiones
+
+# Anexos
+
+- Repositorio del proyecto: <https://github.com/Bamo0507/Laboratorio10_SSL>
+
+# Referencias
+
+- Kaggle. *Adult Income Prediction Dataset*. Disponible en: <https://www.kaggle.com/datasets/mosapabdelghany/adult-income-prediction-dataset>

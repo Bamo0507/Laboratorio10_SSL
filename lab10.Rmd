@@ -341,15 +341,21 @@ knitr::kable(balance_prueba)
 
 ## Modelo supervisado: KNN
 
-ELIMINAR NERY: En esta sección se debe implementar el modelo supervisado base utilizando KNN. Debe incluir la explicación del algoritmo, la configuración utilizada, la variación del hiperparámetro `k`, las métricas de evaluación y la matriz de confusión. Este modelo servirá como referencia para comparar contra los modelos semi-supervisados.
+ELIMINAR NERY: En esta sección se debe implementar el modelo supervisado base utilizando KNN. Debe incluir la explicación del algoritmo, la configuración utilizada y la variación del hiperparámetro `k`, ya que este define cuántos vecinos se consideran para clasificar una observación.
+
+ELIMINAR NERY: También se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambia el desempeño del modelo al modificar el valor de `k` y qué tan robusto resulta el modelo al entrenarse únicamente con el 10% de los datos etiquetados.
 
 ## Modelo semi-supervisado: Label Propagation
 
-ELIMINAR BRYAN: En esta sección se debe implementar el modelo semi-supervisado basado en Label Propagation. Debe incluir una explicación conceptual del algoritmo, la forma en que utiliza datos etiquetados y no etiquetados, los hiperparámetros utilizados, las métricas de evaluación y la matriz de confusión.
+ELIMINAR BRYAN: En esta sección se debe implementar el modelo semi-supervisado basado en Label Propagation. Debe incluir una explicación conceptual del algoritmo, la forma en que utiliza datos etiquetados y no etiquetados, y la variación de hiperparámetros asociados a la construcción del grafo de similitud, como número de vecinos, kernel o parámetro de suavizado, según la implementación utilizada.
+
+ELIMINAR BRYAN: También se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambian los resultados al modificar los hiperparámetros y qué tan robusto resulta el algoritmo con únicamente el 10% de etiquetas disponibles.
 
 ## Modelo semi-supervisado: k-means con restricciones
 
-ELIMINAR ADRIANA: En esta sección se debe implementar el modelo semi-supervisado basado en k-means con restricciones. Debe explicar cómo se generan o utilizan las restricciones a partir del 10% de datos etiquetados, qué hiperparámetros se evalúan, cuáles son sus métricas de desempeño y su matriz de confusión.
+ELIMINAR ADRIANA: En esta sección se debe implementar el modelo semi-supervisado basado en k-means con restricciones. Debe explicar cómo se generan o utilizan las restricciones a partir del 10% de datos etiquetados, especialmente restricciones de tipo *must-link* y *cannot-link*, si se utilizan dentro de la implementación.
+
+ELIMINAR ADRIANA: También se debe realizar variación de hiperparámetros, como número de clusters, número de restricciones utilizadas o configuración del algoritmo. Se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambian los resultados al modificar los hiperparámetros y qué tan robusto resulta el modelo con pocos datos etiquetados.
 
 # Resultados
 

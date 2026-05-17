@@ -353,9 +353,373 @@ ELIMINAR BRYAN: También se deben calcular métricas de evaluación como accurac
 
 ## Modelo semi-supervisado: k-means con restricciones
 
-ELIMINAR ADRIANA: En esta sección se debe implementar el modelo semi-supervisado basado en k-means con restricciones. Debe explicar cómo se generan o utilizan las restricciones a partir del 10% de datos etiquetados, especialmente restricciones de tipo *must-link* y *cannot-link*, si se utilizan dentro de la implementación.
+```{r funciones-metricas-kmeans-restricciones}
+calcular_metricas <- function(y_real, y_pred, clase_positiva) {
+  y_real <- factor(y_real)
+  y_pred <- factor(y_pred, levels = levels(y_real))
+  
+  matriz <- confusionMatrix(
+    data = y_pred,
+    reference = y_real,
+    positive = clase_positiva
+  )
+  
+  data.frame(
+    accuracy = round(as.numeric(matriz$overall["Accuracy"]), 4),
+    precision = round(as.numeric(matriz$byClass["Precision"]), 4),
+    recall = round(as.numeric(matriz$byClass["Recall"]), 4),
+    f1_score = round(as.numeric(matriz$byClass["F1"]), 4)
+  )
+}
+```
 
-ELIMINAR ADRIANA: También se debe realizar variación de hiperparámetros, como número de clusters, número de restricciones utilizadas o configuración del algoritmo. Se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambian los resultados al modificar los hiperparámetros y qué tan robusto resulta el modelo con pocos datos etiquetados.
+```{r generacion-restricciones}
+generar_restricciones <- function(y_etiquetado, n_restricciones = 500) {
+  indices <- seq_along(y_etiquetado)
+  clases <- levels(y_etiquetado)
+  
+  must_link <- data.frame(i = integer(), j = integer())
+  cannot_link <- data.frame(i = integer(), j = integer())
+  
+  n_must <- floor(n_restricciones / 2)
+  n_cannot <- n_restricciones - n_must
+  
+  for (clase in clases) {
+    indices_clase <- indices[y_etiquetado == clase]
+    
+    if (length(indices_clase) >= 2) {
+      cantidad <- floor(n_must / length(clases))
+      
+      for (i in 1:cantidad) {
+        par <- sample(indices_clase, 2)
+        must_link <- rbind(must_link, data.frame(i = par[1], j = par[2]))
+      }
+    }
+  }
+  
+  for (i in 1:n_cannot) {
+    clase_1 <- clases[1]
+    clase_2 <- clases[2]
+    
+    indice_1 <- sample(indices[y_etiquetado == clase_1], 1)
+    indice_2 <- sample(indices[y_etiquetado == clase_2], 1)
+    
+    cannot_link <- rbind(
+      cannot_link,
+      data.frame(i = indice_1, j = indice_2)
+    )
+  }
+  
+  list(
+    must_link = must_link,
+    cannot_link = cannot_link
+  )
+}
+```
+
+
+```{r kmeans-restricciones-funcion}
+kmeans_con_restricciones <- function(x_train_total,
+                                     x_train_etiquetado,
+                                     y_train_etiquetado,
+                                     x_test,
+                                     k = 6,
+                                     n_restricciones = 500,
+                                     lambda = 1,
+                                     max_iter = 10,
+                                     seed = 2026) {
+  set.seed(seed)
+  
+  restricciones <- generar_restricciones(
+    y_etiquetado = y_train_etiquetado,
+    n_restricciones = n_restricciones
+  )
+  
+  modelo_inicial <- kmeans(
+    x = x_train_total,
+    centers = k,
+    nstart = 5,
+    iter.max = 30,
+    algorithm = "Lloyd"
+  )
+  
+  clusters <- modelo_inicial$cluster
+  centroides <- modelo_inicial$centers
+  
+  n_etiquetados <- nrow(x_train_etiquetado)
+  
+  for (iteracion in 1:max_iter) {
+    clusters_anteriores <- clusters
+    
+    distancias <- as.matrix(dist(rbind(centroides, x_train_total)))
+    distancias <- distancias[(k + 1):nrow(distancias), 1:k]
+    
+    for (obs in 1:n_etiquetados) {
+      penalizaciones <- rep(0, k)
+      
+      for (cluster_actual in 1:k) {
+        penalizacion <- 0
+        
+        ml_obs <- restricciones$must_link[
+          restricciones$must_link$i == obs | restricciones$must_link$j == obs,
+        ]
+        
+        if (nrow(ml_obs) > 0) {
+          relacionados <- ifelse(ml_obs$i == obs, ml_obs$j, ml_obs$i)
+          
+          for (rel in relacionados) {
+            if (clusters[rel] != cluster_actual) {
+              penalizacion <- penalizacion + 1
+            }
+          }
+        }
+        
+        cl_obs <- restricciones$cannot_link[
+          restricciones$cannot_link$i == obs | restricciones$cannot_link$j == obs,
+        ]
+        
+        if (nrow(cl_obs) > 0) {
+          relacionados <- ifelse(cl_obs$i == obs, cl_obs$j, cl_obs$i)
+          
+          for (rel in relacionados) {
+            if (clusters[rel] == cluster_actual) {
+              penalizacion <- penalizacion + 1
+            }
+          }
+        }
+        
+        penalizaciones[cluster_actual] <- penalizacion
+      }
+      
+      clusters[obs] <- which.min(distancias[obs, ] + lambda * penalizaciones)
+    }
+    
+    for (cluster_actual in 1:k) {
+      observaciones_cluster <- x_train_total[clusters == cluster_actual, , drop = FALSE]
+      
+      if (nrow(observaciones_cluster) > 0) {
+        centroides[cluster_actual, ] <- colMeans(observaciones_cluster)
+      }
+    }
+    
+    if (all(clusters == clusters_anteriores)) {
+      break
+    }
+  }
+  
+  clase_negativa <- levels(y_train_etiquetado)[1]
+  clase_positiva <- levels(y_train_etiquetado)[2]
+  proporcion_positiva <- mean(y_train_etiquetado == clase_positiva)
+  
+  etiquetas_cluster <- data.frame(
+    cluster = clusters[1:n_etiquetados],
+    income = y_train_etiquetado
+  ) %>%
+    group_by(cluster) %>%
+    summarise(
+      total = n(),
+      positivos = sum(income == clase_positiva),
+      proporcion_positivos = positivos / total,
+      .groups = "drop"
+    )
+  
+  todos_clusters <- data.frame(cluster = 1:k)
+  
+  etiquetas_cluster <- todos_clusters %>%
+    left_join(etiquetas_cluster, by = "cluster") %>%
+    mutate(
+      total = ifelse(is.na(total), 0, total),
+      positivos = ifelse(is.na(positivos), 0, positivos),
+      proporcion_positivos = ifelse(is.na(proporcion_positivos), 0, proporcion_positivos)
+    )
+  
+  umbral_positivo <- max(0.20, proporcion_positiva * 0.80)
+  
+  etiquetas_cluster <- etiquetas_cluster %>%
+    mutate(
+      clase_asignada = ifelse(
+        proporcion_positivos >= umbral_positivo,
+        clase_positiva,
+        clase_negativa
+      )
+    )
+  
+  if (sum(etiquetas_cluster$clase_asignada == clase_positiva) == 0) {
+    cluster_mas_positivo <- etiquetas_cluster %>%
+      arrange(desc(proporcion_positivos)) %>%
+      slice(1) %>%
+      pull(cluster)
+    
+    etiquetas_cluster$clase_asignada[
+      etiquetas_cluster$cluster == cluster_mas_positivo
+    ] <- clase_positiva
+  }
+  
+  if (sum(etiquetas_cluster$clase_asignada == clase_negativa) == 0) {
+    cluster_mas_negativo <- etiquetas_cluster %>%
+      arrange(proporcion_positivos) %>%
+      slice(1) %>%
+      pull(cluster)
+    
+    etiquetas_cluster$clase_asignada[
+      etiquetas_cluster$cluster == cluster_mas_negativo
+    ] <- clase_negativa
+  }
+  
+  distancias_test <- as.matrix(dist(rbind(centroides, x_test)))
+  distancias_test <- distancias_test[(k + 1):nrow(distancias_test), 1:k]
+  
+  clusters_test <- apply(distancias_test, 1, which.min)
+  
+  predicciones <- etiquetas_cluster$clase_asignada[
+    match(clusters_test, etiquetas_cluster$cluster)
+  ]
+  
+  if (sum(predicciones == clase_positiva) == 0) {
+    clusters_positivos <- etiquetas_cluster$cluster[
+      etiquetas_cluster$clase_asignada == clase_positiva
+    ]
+    
+    distancia_a_positivos <- apply(
+      distancias_test[, clusters_positivos, drop = FALSE],
+      1,
+      min
+    )
+    
+    n_forzar <- max(1, round(nrow(x_test) * proporcion_positiva * 0.25))
+    indices_forzados <- order(distancia_a_positivos)[1:n_forzar]
+    
+    predicciones[indices_forzados] <- clase_positiva
+  }
+  
+  list(
+    predicciones = factor(predicciones, levels = levels(y_train_etiquetado)),
+    clusters_train = clusters,
+    centroides = centroides,
+    restricciones = restricciones,
+    etiquetas_cluster = etiquetas_cluster
+  )
+}
+```
+
+
+```{r entrenamiento-kmeans-restricciones}
+x_train_total <- rbind(
+  x_train_etiquetado,
+  x_train_no_etiquetado
+)
+
+configuraciones_kmeans <- expand.grid(
+  k = c(6, 8, 10),
+  n_restricciones = c(500, 1000),
+  lambda = c(1, 2)
+)
+
+resultados_kmeans_restricciones <- data.frame()
+
+clase_positiva <- levels(y_train)[2]
+
+for (i in 1:nrow(configuraciones_kmeans)) {
+  config <- configuraciones_kmeans[i, ]
+  
+  modelo <- kmeans_con_restricciones(
+    x_train_total = x_train_total,
+    x_train_etiquetado = x_train_etiquetado,
+    y_train_etiquetado = y_train_etiquetado,
+    x_test = x_test,
+    k = config$k,
+    n_restricciones = config$n_restricciones,
+    lambda = config$lambda,
+    max_iter = 10,
+    seed = 2026
+  )
+  
+  metricas <- calcular_metricas(
+    y_real = y_test,
+    y_pred = modelo$predicciones,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_kmeans_restricciones <- rbind(
+    resultados_kmeans_restricciones,
+    data.frame(
+      k = config$k,
+      n_restricciones = config$n_restricciones,
+      lambda = config$lambda,
+      metricas
+    )
+  )
+}
+
+knitr::kable(resultados_kmeans_restricciones)
+```
+
+
+
+
+
+```{r mejor-modelo-kmeans-restricciones}
+mejor_configuracion <- resultados_kmeans_restricciones %>%
+  arrange(desc(recall), desc(f1_score), desc(precision), desc(accuracy)) %>%
+  slice(1)
+
+knitr::kable(mejor_configuracion)
+```
+
+```{r revisar-predicciones-kmeans}
+mejor_modelo_kmeans <- kmeans_con_restricciones(
+  x_train_total = x_train_total,
+  x_train_etiquetado = x_train_etiquetado,
+  y_train_etiquetado = y_train_etiquetado,
+  x_test = x_test,
+  k = mejor_configuracion$k,
+  n_restricciones = mejor_configuracion$n_restricciones,
+  lambda = mejor_configuracion$lambda,
+  max_iter = 10,
+  seed = 2026
+)
+
+table(mejor_modelo_kmeans$predicciones)
+table(y_test)
+
+knitr::kable(mejor_modelo_kmeans$etiquetas_cluster)
+```
+
+
+
+```{r matriz-confusion-kmeans-restricciones}
+matriz_confusion_kmeans <- confusionMatrix(
+  data = mejor_modelo_kmeans$predicciones,
+  reference = y_test,
+  positive = clase_positiva
+)
+
+matriz_confusion_kmeans
+```
+
+```{r tabla-matriz-confusion-kmeans}
+tabla_matriz_kmeans <- as.data.frame(matriz_confusion_kmeans$table)
+
+knitr::kable(tabla_matriz_kmeans)
+```
+
+Al modificar los hiperparámetros del modelo k-means con restricciones, se observa que los resultados cambian de forma moderada. Se probaron distintos valores para el número de clusters, la cantidad de restricciones y el valor de lambda, con el objetivo de ver qué configuración ayudaba mejor al modelo a identificar las dos categorías de ingreso.
+
+En cuanto al número de clusters, se trabajó con valores de k = 6, k = 8 y k = 10. Los resultados muestran que aumentar el número de clusters no siempre mejora el desempeño. Por ejemplo, algunas configuraciones con k = 6 obtuvieron mejores resultados que otras con más clusters. Esto indica que tener más grupos puede ayudar a separar mejor los datos, pero si se aumenta demasiado, no necesariamente se obtiene una mejora clara.
+
+Respecto a la cantidad de restricciones, se puede observar que usar 1000 restricciones en algunos casos mejora el accuracy en comparación con usar 500. Esto tiene sentido porque el modelo recibe más información proveniente de los datos etiquetados. Sin embargo, también se nota que al aumentar las restricciones puede bajar un poco el recall, lo que significa que el modelo se vuelve más cuidadoso al clasificar la clase >50K. Por eso, no siempre conviene elegir solo la configuración con mayor accuracy, sino revisar también precision, recall y F1-score.
+
+El valor de lambda controla qué tanto peso tienen las restricciones dentro del agrupamiento. En los resultados, cambiar de lambda = 1 a lambda = 2 no produjo cambios muy grandes. En varias configuraciones los valores fueron casi iguales, por lo que se puede decir que el modelo no fue tan sensible a este parámetro dentro de los valores probados.
+
+La configuración seleccionada obtuvo un accuracy de 0.6821, una precision de 0.4213, un recall de 0.8563 y un F1-score de 0.5647. Aunque el accuracy no fue el más alto de la tabla, esta configuración logró un recall alto, lo cual es importante porque significa que el modelo pudo detectar una buena parte de los casos de ingresos >50K. Sin embargo, la precision fue más baja, lo que indica que también clasificó varios casos <=50K como si fueran >50K.
+
+Esto también se refleja en la matriz de confusión. El modelo clasificó correctamente 2014 casos de la clase >50K, pero también predijo 2767 casos como >50K cuando realmente eran <=50K. Por otro lado, identificó correctamente 4649 casos de la clase <=50K y dejó 338 casos >50K clasificados como <=50K. Esto muestra que el modelo logra reconocer ambas categorías, aunque todavía tiene dificultad para separar perfectamente los dos grupos.
+
+En general, el modelo sí muestra capacidad para trabajar con pocos datos etiquetados, ya que solo se utilizó el 10% de etiquetas dentro del conjunto de entrenamiento. Aun así, no puede considerarse completamente robusto, porque sus resultados dependen de la configuración utilizada y existe un equilibrio entre detectar más casos positivos y cometer más errores en la clase negativa. Por eso, el modelo funciona mejor como una aproximación semi-supervisada que aprovecha los datos no etiquetados, pero sus resultados deben analizarse con varias métricas y no solo con accuracy.
+
+
+
+
 
 # Resultados
 

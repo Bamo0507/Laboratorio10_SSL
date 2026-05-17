@@ -1005,19 +1005,19 @@ En general, el modelo sí muestra capacidad para trabajar con pocos datos etique
 
 ## Comparación de modelos
 
-ELIMINAR EQUIPO: En esta sección se deben consolidar los resultados obtenidos por KNN, Label Propagation y k-means con restricciones. Se debe incluir una tabla comparativa con métricas como accuracy, precision, recall y F1-score.
+ELIMINAR NERY: En esta sección se deben consolidar los resultados obtenidos por KNN, Label Propagation y k-means con restricciones. Se debe incluir una tabla comparativa con métricas como accuracy, precision, recall y F1-score, utilizando la mejor configuración encontrada para cada modelo.
 
 ## Visualización de resultados
 
-ELIMINAR EQUIPO: En esta sección se deben incluir gráficos comparativos de desempeño, matrices de confusión y cualquier visualización que permita comparar las predicciones de los modelos contra los valores reales.
+ELIMINAR NERY: En esta sección se deben incluir gráficos comparativos de desempeño entre los tres modelos. Como mínimo, se recomienda incluir un gráfico de barras con accuracy, precision, recall y F1-score por modelo, además de considerar las matrices de confusión ya generadas en cada sección individual.
 
 # Discusión
 
-ELIMINAR EQUIPO: En esta sección se debe interpretar de forma conjunta el desempeño de los modelos. Se debe discutir si los modelos semi-supervisados mejoraron o no frente al modelo supervisado, cómo afectó trabajar solo con el 10% de etiquetas, qué modelo fue más robusto y qué limitaciones se observaron.
+ELIMINAR NERY: En esta sección se debe interpretar de forma conjunta el desempeño de los modelos. Se debe discutir si los modelos semi-supervisados mejoraron o no frente al modelo supervisado, cómo afectó trabajar solo con el 10% de etiquetas, qué modelo fue más robusto y qué limitaciones se observaron. También se debe comparar el comportamiento de los modelos frente al desbalance de clases.
 
 # Conclusiones
 
-ELIMINAR EQUIPO: En esta sección se deben presentar las conclusiones finales del laboratorio. Se debe seleccionar el mejor modelo con base en evidencia experimental y reflexionar sobre las ventajas, limitaciones y comportamiento de los algoritmos de aprendizaje semi-supervisado.
+ELIMINAR NERY: En esta sección se deben presentar las conclusiones finales del laboratorio. Se debe seleccionar el mejor modelo semi-supervisado con base en evidencia experimental y reflexionar sobre las ventajas, limitaciones y comportamiento de los algoritmos al trabajar con pocos datos etiquetados.
 
 # Anexos
 

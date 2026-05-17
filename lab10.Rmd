@@ -250,17 +250,38 @@ Es importante mencionar que, dada la naturaleza de los modelos, KNN no será cap
 
 Asimismo se va a estar trabajando con una distribución de 70% para entrenamiento y 30% para prueba, esto siguiendo las recomendaciones que se han dado a lo largo del curso para trabajar con modelos bajo el objetivo de no sobreajustarlos ni subajustarlos. 
 
+Debido a que los modelos semi-supervisados seleccionados dependen de medidas de distancia y similitud entre observaciones, trabajar con la totalidad del dataset incrementa considerablemente el costo computacional del entrenamiento y de la experimentación con hiperparámetros. Por esta razón, para la fase de modelado se utilizará una muestra estratificada de 5,000 observaciones, manteniendo la proporción original de la variable objetivo `income`. Esta decisión permite reducir el tiempo de ejecución sin perder representatividad de ambas clases.
+
+```{r muestra-modelado}
+set.seed(2026)
+
+indice_muestra_modelado <- createDataPartition(
+  adult_modelo$income,
+  p = 5000 / nrow(adult_modelo),
+  list = FALSE
+)
+
+adult_modelo_muestra <- adult_modelo[indice_muestra_modelado, ]
+
+balance_muestra_modelado <- adult_modelo_muestra %>%
+  count(income) %>%
+  mutate(porcentaje = round(n / sum(n) * 100, 2))
+
+dim(adult_modelo_muestra)
+knitr::kable(balance_muestra_modelado)
+```
+
 ```{r particion-datos}
 set.seed(2026)
 
 indice_entrenamiento <- createDataPartition(
-  adult_modelo$income,
+  adult_modelo_muestra$income,
   p = 0.7,
   list = FALSE
 )
 
-train_data <- adult_modelo[indice_entrenamiento, ]
-test_data <- adult_modelo[-indice_entrenamiento, ]
+train_data <- adult_modelo_muestra[indice_entrenamiento, ]
+test_data <- adult_modelo_muestra[-indice_entrenamiento, ]
 
 x_train <- train_data %>%
   select(-income)
@@ -312,10 +333,10 @@ resumen_particion <- data.frame(
     nrow(test_data)
   ),
   porcentaje = round(c(
-    nrow(train_data) / nrow(adult_modelo),
+    nrow(train_data) / nrow(adult_modelo_muestra),
     nrow(x_train_etiquetado) / nrow(train_data),
     nrow(x_train_no_etiquetado) / nrow(train_data),
-    nrow(test_data) / nrow(adult_modelo)
+    nrow(test_data) / nrow(adult_modelo_muestra)
   ) * 100, 2)
 )
 
@@ -345,11 +366,220 @@ ELIMINAR NERY: En esta sección se debe implementar el modelo supervisado base u
 
 ELIMINAR NERY: También se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambia el desempeño del modelo al modificar el valor de `k` y qué tan robusto resulta el modelo al entrenarse únicamente con el 10% de los datos etiquetados.
 
+```{r funcion-general-metricas}
+calcular_metricas <- function(y_real, y_pred, clase_positiva) {
+  y_real <- factor(y_real)
+  y_pred <- factor(y_pred, levels = levels(y_real))
+  
+  matriz <- confusionMatrix(
+    data = y_pred,
+    reference = y_real,
+    positive = clase_positiva
+  )
+  
+  data.frame(
+    accuracy = round(as.numeric(matriz$overall["Accuracy"]), 4),
+    precision = round(as.numeric(matriz$byClass["Precision"]), 4),
+    recall = round(as.numeric(matriz$byClass["Recall"]), 4),
+    f1_score = round(as.numeric(matriz$byClass["F1"]), 4)
+  )
+}
+```
+
 ## Modelo semi-supervisado: Label Propagation
 
-ELIMINAR BRYAN: En esta sección se debe implementar el modelo semi-supervisado basado en Label Propagation. Debe incluir una explicación conceptual del algoritmo, la forma en que utiliza datos etiquetados y no etiquetados, y la variación de hiperparámetros asociados a la construcción del grafo de similitud, como número de vecinos, kernel o parámetro de suavizado, según la implementación utilizada.
+El modelo de *Label Propagation* se trabajó como uno de los enfoques semi-supervisados para este laboratorio. En este algoritmo lo que buscamos es trabajar con un grupo pequeño de observaciones que ya tienen una etiqueta y, con base en las características de todas las observaciones, las cuales son tratadas como nodos, se evalúa la similitud entre ellas para ubicarlas dentro de un grafo.
 
-ELIMINAR BRYAN: También se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambian los resultados al modificar los hiperparámetros y qué tan robusto resulta el algoritmo con únicamente el 10% de etiquetas disponibles.
+En este grafo, los puntos más cercanos representan observaciones con características más similares. Mientras más cercanas sean dos observaciones, mayor peso tendrá la arista que conecta a sus nodos, lo cual termina impactando en la etiqueta final que se les va a otorgar. El objetivo del algoritmo es que, como una tinta, los nodos con etiqueta ya tienen un color inicial. Ese color se va propagando hacia los nodos que no tienen etiqueta de acuerdo con la cercanía que tienen con los nodos etiquetados y, de esta forma, se puede categorizar o etiquetar el resto de observaciones disponibles.
+
+En este caso, el modelo utilizó el 10% de etiquetas disponibles en el conjunto de entrenamiento y el resto de observaciones fueron tratadas como no etiquetadas. Para evaluar el comportamiento del modelo se probaron distintas configuraciones del número de vecinos y del parámetro `alpha`. El número de vecinos define cuántas observaciones cercanas se toman en cuenta para propagar la información, mientras que `alpha` controla qué tanto peso tiene la propagación dentro del proceso. Se evaluaron valores de `k = 5`, `k = 10` y `k = 15`, junto con valores de `alpha = 0.60`, `alpha = 0.80` y `alpha = 0.95`.
+
+```{r funciones-label-propagation}
+library(FNN)
+
+label_propagation_knn <- function(x_train,
+                                  y_train_ssl,
+                                  x_test,
+                                  k_vecinos = 10,
+                                  alpha = 0.8,
+                                  max_iter = 100,
+                                  tolerancia = 1e-5) {
+  x_train_matriz <- as.matrix(x_train)
+  x_test_matriz <- as.matrix(x_test)
+  
+  clases <- levels(y_train_ssl)
+  n <- nrow(x_train_matriz)
+  n_clases <- length(clases)
+  
+  indices_etiquetados_lp <- which(!is.na(y_train_ssl))
+  
+  vecinos <- get.knn(
+    data = x_train_matriz,
+    k = k_vecinos
+  )
+  
+  sigma <- median(vecinos$nn.dist)
+  
+  matriz_pesos <- matrix(0, nrow = n, ncol = n)
+  
+  for (i in 1:n) {
+    vecinos_i <- vecinos$nn.index[i, ]
+    distancias_i <- vecinos$nn.dist[i, ]
+    pesos_i <- exp(-(distancias_i^2) / (2 * sigma^2))
+    
+    matriz_pesos[i, vecinos_i] <- pesos_i
+  }
+  
+  matriz_pesos <- pmax(matriz_pesos, t(matriz_pesos))
+  
+  suma_filas <- rowSums(matriz_pesos)
+  suma_filas[suma_filas == 0] <- 1
+  
+  matriz_transicion <- matriz_pesos / suma_filas
+  
+  matriz_etiquetas_inicial <- matrix(0, nrow = n, ncol = n_clases)
+  colnames(matriz_etiquetas_inicial) <- clases
+  
+  for (i in indices_etiquetados_lp) {
+    matriz_etiquetas_inicial[i, as.character(y_train_ssl[i])] <- 1
+  }
+  
+  matriz_etiquetas <- matriz_etiquetas_inicial
+  
+  for (iteracion in 1:max_iter) {
+    matriz_anterior <- matriz_etiquetas
+    
+    matriz_etiquetas <- alpha * matriz_transicion %*% matriz_etiquetas +
+      (1 - alpha) * matriz_etiquetas_inicial
+    
+    matriz_etiquetas[indices_etiquetados_lp, ] <-
+      matriz_etiquetas_inicial[indices_etiquetados_lp, ]
+    
+    cambio <- max(abs(matriz_etiquetas - matriz_anterior))
+    
+    if (cambio < tolerancia) {
+      break
+    }
+  }
+  
+  etiquetas_train_propagadas <- factor(
+    clases[max.col(matriz_etiquetas, ties.method = "first")],
+    levels = clases
+  )
+  
+  vecinos_test <- get.knnx(
+    data = x_train_matriz,
+    query = x_test_matriz,
+    k = k_vecinos
+  )
+  
+  predicciones_test <- apply(vecinos_test$nn.index, 1, function(indices_vecinos) {
+    votos <- table(etiquetas_train_propagadas[indices_vecinos])
+    names(votos)[which.max(votos)]
+  })
+  
+  list(
+    predicciones = factor(predicciones_test, levels = clases),
+    etiquetas_train_propagadas = etiquetas_train_propagadas,
+    matriz_etiquetas = matriz_etiquetas,
+    iteraciones = iteracion,
+    sigma = sigma
+  )
+}
+```
+
+```{r entrenamiento-label-propagation}
+configuraciones_label_propagation <- expand.grid(
+  k_vecinos = c(5, 10, 15),
+  alpha = c(0.6, 0.8, 0.95)
+)
+
+resultados_label_propagation <- data.frame()
+
+clase_positiva <- levels(y_train)[2]
+
+for (i in 1:nrow(configuraciones_label_propagation)) {
+  config_lp <- configuraciones_label_propagation[i, ]
+  
+  modelo_lp <- label_propagation_knn(
+    x_train = x_train,
+    y_train_ssl = y_train_ssl,
+    x_test = x_test,
+    k_vecinos = config_lp$k_vecinos,
+    alpha = config_lp$alpha,
+    max_iter = 100,
+    tolerancia = 1e-5
+  )
+  
+  metricas_lp <- calcular_metricas(
+    y_real = y_test,
+    y_pred = modelo_lp$predicciones,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_label_propagation <- rbind(
+    resultados_label_propagation,
+    data.frame(
+      k_vecinos = config_lp$k_vecinos,
+      alpha = config_lp$alpha,
+      iteraciones = modelo_lp$iteraciones,
+      sigma = round(modelo_lp$sigma, 4),
+      metricas_lp
+    )
+  )
+}
+
+knitr::kable(resultados_label_propagation)
+```
+
+```{r mejor-modelo-label-propagation}
+mejor_configuracion_label_propagation <- resultados_label_propagation %>%
+  arrange(desc(f1_score), desc(recall), desc(precision), desc(accuracy)) %>%
+  slice(1)
+
+knitr::kable(mejor_configuracion_label_propagation)
+```
+
+```{r predicciones-label-propagation}
+mejor_modelo_label_propagation <- label_propagation_knn(
+  x_train = x_train,
+  y_train_ssl = y_train_ssl,
+  x_test = x_test,
+  k_vecinos = mejor_configuracion_label_propagation$k_vecinos,
+  alpha = mejor_configuracion_label_propagation$alpha,
+  max_iter = 100,
+  tolerancia = 1e-5
+)
+
+table(mejor_modelo_label_propagation$predicciones)
+table(y_test)
+```
+
+```{r matriz-confusion-label-propagation}
+matriz_confusion_label_propagation <- confusionMatrix(
+  data = mejor_modelo_label_propagation$predicciones,
+  reference = y_test,
+  positive = clase_positiva
+)
+
+matriz_confusion_label_propagation
+```
+
+```{r tabla-matriz-confusion-label-propagation}
+tabla_matriz_label_propagation <- as.data.frame(matriz_confusion_label_propagation$table)
+
+knitr::kable(tabla_matriz_label_propagation)
+```
+
+Los resultados muestran que la mejor configuración fue utilizar `k = 10` vecinos y `alpha = 0.60`. Esta configuración obtuvo un accuracy de 0.7578, una precision de 0.4970, un recall de 0.4543 y un F1-score de 0.4747. Aunque el accuracy es aceptable, al revisar el resto de métricas se observa que el modelo tiene cierta dificultad para identificar correctamente los casos de ingresos mayores a \$50,000. Esto puede deberse, en gran parte, al desbalance de categorías que se tenía en el dataset.
+
+En la matriz de confusión se observa que el modelo clasificó correctamente 972 casos de la clase menor o igual a \$50,000 y 164 casos de la clase mayor a \$50,000. Sin embargo, clasificó 197 casos que realmente eran mayores a \$50,000 como si fueran menores o iguales a \$50,000, lo que indica que todavía tiene cierta dificultad para detectar a esta clase minoritaria. Por otro lado, clasificó 166 casos que eran menores o iguales a \$50,000 como mayores a \$50,000.
+
+Al analizar los hiperparámetros se observa que trabajar con un `k = 10` permitió obtener el mejor balance entre las métricas. Con menos vecinos, el grafo se quedaba muy limitado y no lograba identificar todas las características que se tienen en común para cada una de las categorías, mientras que con más vecinos se podían incorporar observaciones menos similares.
+
+En cuanto a `alpha`, los valores más altos no mejoraron el desempeño y, además, requirieron más iteraciones, lo que indica que depender demasiado de la propagación no necesariamente ayuda a mejorar la clasificación de etiquetas.
+
+En general, este modelo logra aprovechar la estructura de los datos no etiquetados, pero su desempeño fue limitado, como consecuencia del desbalance de clases mencionado previamente. Aun así, el modelo representa una aproximación válida dentro del escenario semi-supervisado, ya que permitió entrenar utilizando únicamente el 10% de etiquetas disponibles.
 
 ## Modelo semi-supervisado: k-means con restricciones
 
@@ -654,10 +884,6 @@ for (i in 1:nrow(configuraciones_kmeans)) {
 knitr::kable(resultados_kmeans_restricciones)
 ```
 
-
-
-
-
 ```{r mejor-modelo-kmeans-restricciones}
 mejor_configuracion <- resultados_kmeans_restricciones %>%
   arrange(desc(recall), desc(f1_score), desc(precision), desc(accuracy)) %>%
@@ -685,8 +911,6 @@ table(y_test)
 knitr::kable(mejor_modelo_kmeans$etiquetas_cluster)
 ```
 
-
-
 ```{r matriz-confusion-kmeans-restricciones}
 matriz_confusion_kmeans <- confusionMatrix(
   data = mejor_modelo_kmeans$predicciones,
@@ -711,14 +935,11 @@ Respecto a la cantidad de restricciones, se puede observar que usar 1000 restric
 
 El valor de lambda controla qué tanto peso tienen las restricciones dentro del agrupamiento. En los resultados, cambiar de lambda = 1 a lambda = 2 no produjo cambios muy grandes. En varias configuraciones los valores fueron casi iguales, por lo que se puede decir que el modelo no fue tan sensible a este parámetro dentro de los valores probados.
 
-La configuración seleccionada obtuvo un accuracy de 0.6821, una precision de 0.4213, un recall de 0.8563 y un F1-score de 0.5647. Aunque el accuracy no fue el más alto de la tabla, esta configuración logró un recall alto, lo cual es importante porque significa que el modelo pudo detectar una buena parte de los casos de ingresos >50K. Sin embargo, la precision fue más baja, lo que indica que también clasificó varios casos <=50K como si fueran >50K.
+La configuración seleccionada obtuvo un accuracy de 0.6831, una precision de 0.4238, un recall de 0.8781 y un F1-score de 0.5717. Aunque el accuracy no fue el más alto de la tabla, esta configuración logró un recall alto, lo cual es importante porque significa que el modelo pudo detectar una buena parte de los casos de ingresos >50K. Sin embargo, la precision fue más baja, lo que indica que también clasificó varios casos <=50K como si fueran >50K.
 
-Esto también se refleja en la matriz de confusión. El modelo clasificó correctamente 2014 casos de la clase >50K, pero también predijo 2767 casos como >50K cuando realmente eran <=50K. Por otro lado, identificó correctamente 4649 casos de la clase <=50K y dejó 338 casos >50K clasificados como <=50K. Esto muestra que el modelo logra reconocer ambas categorías, aunque todavía tiene dificultad para separar perfectamente los dos grupos.
+Esto también se refleja en la matriz de confusión. El modelo clasificó correctamente 317 casos de la clase >50K, pero también predijo 431 casos como >50K cuando realmente eran <=50K. Por otro lado, identificó correctamente 707 casos de la clase <=50K y dejó 44 casos >50K clasificados como <=50K. Esto muestra que el modelo logra reconocer ambas categorías, aunque todavía tiene dificultad para separar perfectamente los dos grupos.
 
 En general, el modelo sí muestra capacidad para trabajar con pocos datos etiquetados, ya que solo se utilizó el 10% de etiquetas dentro del conjunto de entrenamiento. Aun así, no puede considerarse completamente robusto, porque sus resultados dependen de la configuración utilizada y existe un equilibrio entre detectar más casos positivos y cometer más errores en la clase negativa. Por eso, el modelo funciona mejor como una aproximación semi-supervisada que aprovecha los datos no etiquetados, pero sus resultados deben analizarse con varias métricas y no solo con accuracy.
-
-
-
 
 
 # Resultados

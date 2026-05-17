@@ -360,12 +360,6 @@ knitr::kable(balance_entrenamiento_etiquetado)
 knitr::kable(balance_prueba)
 ```
 
-## Modelo supervisado: KNN
-
-ELIMINAR NERY: En esta sección se debe implementar el modelo supervisado base utilizando KNN. Debe incluir la explicación del algoritmo, la configuración utilizada y la variación del hiperparámetro `k`, ya que este define cuántos vecinos se consideran para clasificar una observación.
-
-ELIMINAR NERY: También se deben calcular métricas de evaluación como accuracy, precision, recall y F1-score, además de presentar la matriz de confusión. Finalmente, se debe incluir un breve análisis de sensibilidad sobre cómo cambia el desempeño del modelo al modificar el valor de `k` y qué tan robusto resulta el modelo al entrenarse únicamente con el 10% de los datos etiquetados.
-
 ```{r funcion-general-metricas}
 calcular_metricas <- function(y_real, y_pred, clase_positiva) {
   y_real <- factor(y_real)
@@ -385,6 +379,91 @@ calcular_metricas <- function(y_real, y_pred, clase_positiva) {
   )
 }
 ```
+
+## Modelo supervisado: KNN
+
+Como modelo supervisado se seleccionó KNN para contrastar su desempeño contra los dos modelos semi-supervisados. En este caso, el modelo únicamente puede entrenarse con el 10% de las observaciones etiquetadas, ya que para funcionar necesita trabajar con observaciones cuya clase sea conocida. Por esta razón, a diferencia de los modelos semi-supervisados, KNN no puede utilizar directamente el resto de observaciones no etiquetadas durante el entrenamiento.
+
+Para evaluar el comportamiento del modelo se probaron distintos valores de `k`, específicamente `k = 3`, `k = 5`, `k = 7`, `k = 9`, `k = 11`, `k = 15` y `k = 21`. Este hiperparámetro define cuántos vecinos cercanos se toman en cuenta para asignar una categoría a una nueva observación.
+
+```{r entrenamiento-knn}
+library(class)
+
+valores_k_knn <- c(3, 5, 7, 9, 11, 15, 21)
+
+resultados_knn <- data.frame()
+
+clase_positiva <- levels(y_train)[2]
+
+for (k_actual in valores_k_knn) {
+  predicciones_knn <- knn(
+    train = x_train_etiquetado,
+    test = x_test,
+    cl = y_train_etiquetado,
+    k = k_actual
+  )
+  
+  metricas_knn <- calcular_metricas(
+    y_real = y_test,
+    y_pred = predicciones_knn,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_knn <- rbind(
+    resultados_knn,
+    data.frame(
+      k = k_actual,
+      metricas_knn
+    )
+  )
+}
+
+knitr::kable(resultados_knn)
+```
+
+```{r mejor-modelo-knn}
+mejor_configuracion_knn <- resultados_knn %>%
+  arrange(desc(f1_score), desc(recall), desc(precision), desc(accuracy)) %>%
+  slice(1)
+
+knitr::kable(mejor_configuracion_knn)
+```
+
+```{r predicciones-knn}
+predicciones_mejor_knn <- knn(
+  train = x_train_etiquetado,
+  test = x_test,
+  cl = y_train_etiquetado,
+  k = mejor_configuracion_knn$k
+)
+
+table(predicciones_mejor_knn)
+table(y_test)
+```
+
+```{r matriz-confusion-knn}
+matriz_confusion_knn <- confusionMatrix(
+  data = predicciones_mejor_knn,
+  reference = y_test,
+  positive = clase_positiva
+)
+
+matriz_confusion_knn
+```
+
+```{r tabla-matriz-confusion-knn}
+tabla_matriz_knn <- as.data.frame(matriz_confusion_knn$table)
+
+knitr::kable(tabla_matriz_knn)
+```
+
+Los resultados muestran que el mejor modelo, tomando como referencia el F1-score, el cual considera tanto precision como recall, fue el modelo con `k = 3`. Esta configuración obtuvo un accuracy de 0.7799, una precision de 0.5518, un recall de 0.4571 y un F1-score de 0.5000. Aunque otros valores de `k` alcanzaron un accuracy más alto, el modelo con `k = 3` logró un mejor balance entre precision y recall para la clase de ingresos mayores a \$50,000.
+
+Al analizar los resultados se identificó que, a mayor valor de `k`, se obtenían mejores valores de accuracy. Sin embargo, esto se debe en parte al desbalance de clases que existe en el dataset, ya que las observaciones están sesgadas hacia casos de personas que ganan menos o igual a \$50,000. Por lo tanto, al aumentar la cantidad de vecinos considerados, existe una mayor probabilidad de que alrededor de una observación existan más puntos pertenecientes a la clase mayoritaria. Es por eso que, bajo este escenario, un valor bajo de `k` presenta mejores resultados para tratar de identificar más personas con ingresos mayores a \$50,000.
+
+En la matriz de confusión se observa que el modelo clasificó correctamente 1004 casos de la clase menor o igual a \$50,000 y 165 casos de la clase mayor a \$50,000. Sin embargo, también clasificó 196 casos que realmente eran mayores a \$50,000 como si fueran menores o iguales a \$50,000. Esto muestra que el modelo todavía tiene dificultad para identificar a la clase minoritaria. Por otro lado, clasificó 134 casos menores o iguales a \$50,000 como mayores a \$50,000.
+
+En general, KNN funciona como una referencia supervisada útil para el laboratorio, pero su desempeño se ve limitado por la poca cantidad de datos etiquetados disponibles, ya que se definió trabajar únicamente con el 10% de estas etiquetas. El modelo logra buenos resultados generales en accuracy, pero tiene dificultades para detectar correctamente una parte importante de los casos mayores a \$50,000. Esto se relaciona tanto con el desbalance de clases como con el hecho de que el modelo no puede aprovechar directamente todas las observaciones no etiquetadas que se tienen disponibles.
 
 ## Modelo semi-supervisado: Label Propagation
 
@@ -582,26 +661,6 @@ En cuanto a `alpha`, los valores más altos no mejoraron el desempeño y, ademá
 En general, este modelo logra aprovechar la estructura de los datos no etiquetados, pero su desempeño fue limitado, como consecuencia del desbalance de clases mencionado previamente. Aun así, el modelo representa una aproximación válida dentro del escenario semi-supervisado, ya que permitió entrenar utilizando únicamente el 10% de etiquetas disponibles.
 
 ## Modelo semi-supervisado: k-means con restricciones
-
-```{r funciones-metricas-kmeans-restricciones}
-calcular_metricas <- function(y_real, y_pred, clase_positiva) {
-  y_real <- factor(y_real)
-  y_pred <- factor(y_pred, levels = levels(y_real))
-  
-  matriz <- confusionMatrix(
-    data = y_pred,
-    reference = y_real,
-    positive = clase_positiva
-  )
-  
-  data.frame(
-    accuracy = round(as.numeric(matriz$overall["Accuracy"]), 4),
-    precision = round(as.numeric(matriz$byClass["Precision"]), 4),
-    recall = round(as.numeric(matriz$byClass["Recall"]), 4),
-    f1_score = round(as.numeric(matriz$byClass["F1"]), 4)
-  )
-}
-```
 
 ```{r generacion-restricciones}
 generar_restricciones <- function(y_etiquetado, n_restricciones = 500) {

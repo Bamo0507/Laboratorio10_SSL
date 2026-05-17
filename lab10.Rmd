@@ -1005,19 +1005,142 @@ En general, el modelo sí muestra capacidad para trabajar con pocos datos etique
 
 ## Comparación de modelos
 
-ELIMINAR NERY: En esta sección se deben consolidar los resultados obtenidos por KNN, Label Propagation y k-means con restricciones. Se debe incluir una tabla comparativa con métricas como accuracy, precision, recall y F1-score, utilizando la mejor configuración encontrada para cada modelo.
+Para comparar los tres modelos se tomó la mejor configuración encontrada en cada sección experimental. En el caso de KNN y Label Propagation, la selección se realizó priorizando el F1-score, seguido por recall, precision y accuracy. Para k-means con restricciones se priorizó el recall y luego el F1-score, debido a que este modelo mostró una capacidad mayor para detectar la clase positiva, es decir, personas con ingresos mayores a \$50,000.
+
+```{r comparacion-modelos}
+comparacion_modelos <- bind_rows(
+  mejor_configuracion_knn %>%
+    mutate(
+      modelo = "KNN supervisado",
+      configuracion = paste0("k = ", k)
+    ) %>%
+    select(modelo, configuracion, accuracy, precision, recall, f1_score),
+  mejor_configuracion_label_propagation %>%
+    mutate(
+      modelo = "Label Propagation",
+      configuracion = paste0("k = ", k_vecinos, ", alpha = ", alpha)
+    ) %>%
+    select(modelo, configuracion, accuracy, precision, recall, f1_score),
+  mejor_configuracion %>%
+    mutate(
+      modelo = "K-means con restricciones",
+      configuracion = paste0(
+        "k = ", k,
+        ", restricciones = ", n_restricciones,
+        ", lambda = ", lambda
+      )
+    ) %>%
+    select(modelo, configuracion, accuracy, precision, recall, f1_score)
+)
+
+knitr::kable(comparacion_modelos)
+```
+
+La comparación muestra que el modelo supervisado KNN obtuvo el mayor accuracy general. Sin embargo, este resultado debe interpretarse con cuidado, porque el conjunto de datos está desbalanceado hacia la clase `<=50K`. Por esta razón, un modelo puede alcanzar un buen accuracy clasificando correctamente muchos casos de la clase mayoritaria, aunque falle al identificar una parte importante de las personas con ingresos `>50K`.
+
+Al revisar el F1-score y el recall, k-means con restricciones presenta el comportamiento más favorable entre los modelos semi-supervisados. Aunque su accuracy es menor que el de KNN y Label Propagation, su recall es considerablemente más alto, lo que indica que logra recuperar una mayor proporción de los casos positivos. Label Propagation tuvo un desempeño similar al baseline supervisado en recall, pero no logró superarlo en F1-score ni en accuracy.
 
 ## Visualización de resultados
 
-ELIMINAR NERY: En esta sección se deben incluir gráficos comparativos de desempeño entre los tres modelos. Como mínimo, se recomienda incluir un gráfico de barras con accuracy, precision, recall y F1-score por modelo, además de considerar las matrices de confusión ya generadas en cada sección individual.
+```{r grafico-comparacion-metricas}
+metricas_largo <- comparacion_modelos %>%
+  select(modelo, accuracy, precision, recall, f1_score) %>%
+  reshape(
+    varying = list(c("accuracy", "precision", "recall", "f1_score")),
+    v.names = "valor",
+    timevar = "metrica",
+    times = c("Accuracy", "Precision", "Recall", "F1-score"),
+    direction = "long"
+  )
+
+rownames(metricas_largo) <- NULL
+metricas_largo$modelo <- factor(
+  metricas_largo$modelo,
+  levels = c("KNN supervisado", "Label Propagation", "K-means con restricciones")
+)
+metricas_largo$metrica <- factor(
+  metricas_largo$metrica,
+  levels = c("Accuracy", "Precision", "Recall", "F1-score")
+)
+
+ggplot(metricas_largo, aes(x = metrica, y = valor, fill = modelo)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(
+    aes(label = round(valor, 3)),
+    position = position_dodge(width = 0.8),
+    vjust = -0.3,
+    size = 3
+  ) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+  labs(
+    title = "Comparación de métricas por modelo",
+    x = "Métrica",
+    y = "Valor",
+    fill = "Modelo"
+  ) +
+  theme_minimal()
+```
+
+```{r comparacion-matrices-confusion}
+matrices_confusion_comparadas <- bind_rows(
+  tabla_matriz_knn %>%
+    mutate(modelo = "KNN supervisado"),
+  tabla_matriz_label_propagation %>%
+    mutate(modelo = "Label Propagation"),
+  tabla_matriz_kmeans %>%
+    mutate(modelo = "K-means con restricciones")
+) %>%
+  rename(
+    prediccion = Prediction,
+    real = Reference,
+    cantidad = Freq
+  ) %>%
+  select(modelo, prediccion, real, cantidad)
+
+knitr::kable(matrices_confusion_comparadas)
+```
+
+```{r grafico-matrices-confusion}
+ggplot(
+  matrices_confusion_comparadas,
+  aes(x = real, y = prediccion, fill = cantidad)
+) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = cantidad), color = "white", fontface = "bold") +
+  facet_wrap(~ modelo) +
+  scale_fill_gradient(low = "#6baed6", high = "#08519c") +
+  labs(
+    title = "Matrices de confusión por modelo",
+    x = "Clase real",
+    y = "Clase predicha",
+    fill = "Casos"
+  ) +
+  theme_minimal()
+```
+
+Los gráficos permiten observar con mayor claridad el intercambio entre las métricas. KNN y Label Propagation mantienen valores más altos de accuracy, pero presentan recall bajo para la clase `>50K`. En cambio, k-means con restricciones reduce el accuracy porque comete más falsos positivos, pero mejora el recall de forma marcada. Esto significa que, para este problema, dicho modelo es más agresivo al identificar posibles personas con ingresos superiores a \$50,000.
 
 # Discusión
 
-ELIMINAR NERY: En esta sección se debe interpretar de forma conjunta el desempeño de los modelos. Se debe discutir si los modelos semi-supervisados mejoraron o no frente al modelo supervisado, cómo afectó trabajar solo con el 10% de etiquetas, qué modelo fue más robusto y qué limitaciones se observaron. También se debe comparar el comportamiento de los modelos frente al desbalance de clases.
+Los resultados muestran que los modelos semi-supervisados no mejoraron al baseline supervisado en todas las métricas. KNN obtuvo el mejor accuracy y la mejor precision, por lo que fue el modelo que cometió menos errores generales y fue más cuidadoso al predecir la clase `>50K`. Sin embargo, su recall fue bajo, lo cual evidencia que dejó sin identificar una proporción importante de personas que realmente pertenecían a la clase positiva.
+
+Label Propagation tampoco logró superar claramente a KNN. Aunque utiliza información de las observaciones no etiquetadas mediante una estructura de vecindad, su desempeño quedó limitado por la distribución de los datos y por el desbalance de clases. Al construir el grafo de similitud, las observaciones de la clase mayoritaria pueden dominar la propagación de etiquetas, especialmente cuando solo se dispone de una fracción pequeña de etiquetas reales. Por eso, aunque el modelo aprovecha datos no etiquetados, no necesariamente mejora si la estructura geométrica de los datos no separa bien las clases.
+
+El modelo k-means con restricciones presentó el mejor comportamiento semi-supervisado si se prioriza la detección de la clase `>50K`. Su recall fue el más alto de los tres modelos y su F1-score también fue superior al de Label Propagation y KNN. Esto indica que las restricciones *must-link* y *cannot-link* sí aportaron información útil para orientar la formación de grupos. No obstante, esta mejora tuvo un costo: la precision disminuyó porque el modelo clasificó varios casos `<=50K` como `>50K`.
+
+Trabajar únicamente con el 10% de etiquetas tuvo un impacto importante en los tres enfoques. Para KNN, esto redujo directamente la cantidad de ejemplos disponibles para clasificar nuevas observaciones. Para Label Propagation, limitó los puntos iniciales desde los cuales se difundían las etiquetas. Para k-means con restricciones, redujo la cantidad de relaciones confiables que podían generarse entre pares de observaciones. Aun así, los modelos semi-supervisados permitieron aprovechar parcialmente la estructura de los datos no etiquetados, lo cual es precisamente el objetivo de este tipo de aprendizaje.
+
+En relación con la robustez, KNN fue el modelo más estable si se considera accuracy, pero no fue el más adecuado para recuperar la clase minoritaria. Label Propagation mostró un comportamiento intermedio, aunque no logró una mejora relevante frente al baseline. K-means con restricciones fue más sensible a los hiperparámetros, especialmente al número de clusters y a la cantidad de restricciones, pero ofreció la mejor recuperación de la clase positiva. Por ello, su utilidad depende del objetivo del problema: si se quiere minimizar errores generales, KNN es competitivo; si se quiere detectar la mayor cantidad posible de casos `>50K`, k-means con restricciones resulta más conveniente.
 
 # Conclusiones
 
-ELIMINAR NERY: En esta sección se deben presentar las conclusiones finales del laboratorio. Se debe seleccionar el mejor modelo semi-supervisado con base en evidencia experimental y reflexionar sobre las ventajas, limitaciones y comportamiento de los algoritmos al trabajar con pocos datos etiquetados.
+El laboratorio permitió comprobar que el aprendizaje semi-supervisado puede ser útil cuando solo se tiene disponible una fracción pequeña de etiquetas, pero su desempeño depende fuertemente de la estructura de los datos, del desbalance de clases y de la configuración de hiperparámetros. En este caso, usar únicamente el 10% de las etiquetas hizo que los modelos tuvieran información limitada para aprender patrones confiables, especialmente para la clase minoritaria `>50K`.
+
+Con base en la evidencia experimental, el mejor modelo semi-supervisado fue k-means con restricciones. Esta elección se justifica porque obtuvo el mayor recall y el mayor F1-score entre los enfoques evaluados, lo cual indica un mejor equilibrio para identificar la clase positiva. Aunque su accuracy y precision fueron menores, el modelo logró capturar más casos de personas con ingresos mayores a \$50,000, que era justamente la clase más difícil de reconocer por el desbalance del dataset.
+
+Label Propagation funcionó como una alternativa válida basada en grafos, pero sus resultados no superaron al modelo supervisado ni al k-means con restricciones. Esto sugiere que, para este conjunto de datos, la similitud entre observaciones no fue suficiente para propagar etiquetas de manera claramente ventajosa. Además, el predominio de la clase `<=50K` afectó la capacidad del modelo para reconocer adecuadamente la clase minoritaria.
+
+Finalmente, los resultados confirman que no es recomendable evaluar estos modelos únicamente con accuracy. En datasets desbalanceados, métricas como recall, precision y F1-score permiten entender mejor el comportamiento real de los algoritmos. Para trabajos futuros, sería conveniente repetir el experimento con distintos porcentajes de datos etiquetados, como 5%, 10% y 20%, y evaluar técnicas adicionales de balanceo para analizar si los modelos semi-supervisados mejoran su capacidad de generalización.
 
 # Anexos
 

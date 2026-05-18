@@ -24,7 +24,7 @@ Para el desarrollo del laboratorio se va a estar utilizando el dataset *Adult In
 
 Para realizar el análisis, primero se hará un análisis exploratorio sobre el conjunto de datos, validando su dimensionalidad, distribución de las clases, variables con las que se está trabajando, presencia de valores faltantes, correlaciones, entre otros aspectos. Posteriormente, se aplicarán las transformaciones de datos necesarias para poder trabajar con el modelo supervisado y los otros dos modelos semi-supervisados a utilizar.
 
-Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué clasificación le corresponde a cada una de las observaciones. Dicho esto, para simular un escenario de aprendizaje semi-supervisado, el conjunto de datos primero va a ser dividido en entrenamiento y prueba. A partir del conjunto de entrenamiento se conservará únicamente el 10% de las etiquetas, mientras que el resto será tratado como aquellas que no están disponibles en el dataset. Finalmente, se contrastará el desempeño entre el modelo supervisado y los dos modelos semi-supervisados a implementar.
+Asimismo, es importante mencionar que el dataset ya tiene las respuestas de qué clasificación le corresponde a cada una de las observaciones. Dicho esto, para simular un escenario de aprendizaje semi-supervisado, el conjunto de datos primero va a ser dividido en entrenamiento y prueba. A partir del conjunto de entrenamiento se conservarán pequeñas fracciones de etiquetas, específicamente 5%, 10% y 20%, mientras que el resto será tratado como información no disponible. Finalmente, se contrastará el desempeño entre el modelo supervisado y los dos modelos semi-supervisados a implementar.
 
 Los algoritmos con los que se va a estar trabajando para el aprendizaje semi-supervisado serán *Label Propagation* y k-means con restricciones. Dadas estas elecciones, al ser algoritmos que dependen de medidas de distancia para evaluar la similitud entre las observaciones, fue necesario aplicar un proceso de limpieza y transformación previo al entrenamiento.
 
@@ -244,11 +244,11 @@ head(adult_modelo[, 1:min(10, ncol(adult_modelo))])
 
 ## Separación de datos etiquetados y no etiquetados
 
-Para trabajar con los modelos, el dataset se va a distribuir en datos de entrenamiento y datos de prueba. En el conjunto de prueba se mantienen todas las etiquetas, ya que éste es el que nos va a servir como un benchmark para poder evaluar el desempeño final de los modelos. En contraste en el conjunto de entrenamientos, donde sí vamos a simular el escenario semi-supervisado, en donde únicamente el 10% de las observaciones van a tener su etiqueta y el 90% restante van a ser datos no etiquetados. 
+Para trabajar con los modelos, el dataset se va a distribuir en datos de entrenamiento y datos de prueba. En el conjunto de prueba se mantienen todas las etiquetas, ya que éste es el que nos va a servir como un benchmark para poder evaluar el desempeño final de los modelos. En contraste, en el conjunto de entrenamiento es donde se va a simular el escenario semi-supervisado, dejando únicamente una fracción pequeña de observaciones con etiqueta y tratando el resto como datos no etiquetados.
 
 Es importante mencionar que, dada la naturaleza de los modelos, KNN no será capaz de utilizar la data que no tiene etiquetas mientras que los modelos semi supervisados sí van a poder aprovechar estos datos. 
 
-Asimismo se va a estar trabajando con una distribución de 70% para entrenamiento y 30% para prueba, esto siguiendo las recomendaciones que se han dado a lo largo del curso para trabajar con modelos bajo el objetivo de no sobreajustarlos ni subajustarlos. 
+Asimismo se va a estar trabajando con una distribución de 70% para entrenamiento y 30% para prueba, esto siguiendo las recomendaciones que se han dado a lo largo del curso para trabajar con modelos bajo el objetivo de no sobreajustarlos ni subajustarlos. Para el entrenamiento principal de cada modelo se utilizará el 10% de etiquetas, y posteriormente se realizará un análisis de sensibilidad considerando 5%, 10% y 20% de etiquetas disponibles.
 
 Debido a que los modelos semi-supervisados seleccionados dependen de medidas de distancia y similitud entre observaciones, trabajar con la totalidad del dataset incrementa considerablemente el costo computacional del entrenamiento y de la experimentación con hiperparámetros. Por esta razón, para la fase de modelado se utilizará una muestra estratificada de 5,000 observaciones, manteniendo la proporción original de la variable objetivo `income`. Esta decisión permite reducir el tiempo de ejecución sin perder representatividad de ambas clases.
 
@@ -662,6 +662,12 @@ En general, este modelo logra aprovechar la estructura de los datos no etiquetad
 
 ## Modelo semi-supervisado: k-means con restricciones
 
+El modelo de k-means con restricciones se trabajó como el segundo enfoque semi-supervisado del laboratorio. A diferencia de un k-means tradicional, en donde el algoritmo agrupa las observaciones únicamente con base en la distancia hacia los centroides, en este caso se incorporan restricciones construidas a partir de las observaciones que sí tienen etiqueta. La idea es que estas etiquetas disponibles sirvan como una guía parcial para orientar la formación de los grupos.
+
+Para esto se utilizan dos tipos de restricciones. Las restricciones *must-link* indican que dos observaciones deberían quedar en el mismo grupo porque pertenecen a la misma clase. Por otro lado, las restricciones *cannot-link* indican que dos observaciones no deberían quedar en el mismo grupo porque pertenecen a clases distintas. De esta forma, aunque la mayoría de observaciones no tiene etiqueta, el modelo puede aprovechar el pequeño conjunto etiquetado para construir relaciones que ayuden a separar mejor los datos durante el agrupamiento.
+
+En este caso, las restricciones fueron generadas a partir de la fracción etiquetada del conjunto de entrenamiento. Posteriormente, el algoritmo ajusta la asignación de clusters considerando tanto la distancia hacia los centroides como una penalización asociada al incumplimiento de estas restricciones. Esto permite que el modelo funcione como una aproximación semi-supervisada, ya que no depende únicamente de las etiquetas, pero sí utiliza la información disponible para guiar el proceso de agrupamiento.
+
 ```{r generacion-restricciones}
 generar_restricciones <- function(y_etiquetado, n_restricciones = 500) {
   indices <- seq_along(y_etiquetado)
@@ -1040,6 +1046,123 @@ La comparación muestra que el modelo supervisado KNN obtuvo el mayor accuracy g
 
 Al revisar el F1-score y el recall, k-means con restricciones presenta el comportamiento más favorable entre los modelos semi-supervisados. Aunque su accuracy es menor que el de KNN y Label Propagation, su recall es considerablemente más alto, lo que indica que logra recuperar una mayor proporción de los casos positivos. Label Propagation tuvo un desempeño similar al baseline supervisado en recall, pero no logró superarlo en F1-score ni en accuracy.
 
+## Sensibilidad al porcentaje de etiquetas
+
+Además de comparar los modelos en el escenario principal con 10% de etiquetas, se evaluó el comportamiento de los tres enfoques al modificar la cantidad de datos etiquetados disponibles dentro del conjunto de entrenamiento. Para esto se utilizaron porcentajes de 5%, 10% y 20%. En esta comparación se mantuvo fija la mejor configuración encontrada previamente para cada modelo, con el objetivo de evaluar específicamente el efecto de la disponibilidad de etiquetas y no repetir todo el proceso de búsqueda de hiperparámetros.
+
+```{r sensibilidad-porcentaje-etiquetas}
+porcentajes_etiquetados <- c(0.05, 0.10, 0.20)
+
+resultados_sensibilidad_etiquetas <- data.frame()
+
+for (porcentaje_actual in porcentajes_etiquetados) {
+  set.seed(2026)
+  
+  indices_etiquetados_actual <- createDataPartition(
+    y_train,
+    p = porcentaje_actual,
+    list = FALSE
+  )
+  
+  indices_no_etiquetados_actual <- setdiff(
+    seq_along(y_train),
+    indices_etiquetados_actual
+  )
+  
+  x_train_etiquetado_actual <- x_train[indices_etiquetados_actual, ]
+  y_train_etiquetado_actual <- y_train[indices_etiquetados_actual]
+  x_train_no_etiquetado_actual <- x_train[indices_no_etiquetados_actual, ]
+  
+  y_train_ssl_actual <- y_train
+  y_train_ssl_actual[indices_no_etiquetados_actual] <- NA
+  
+  predicciones_knn_actual <- knn(
+    train = x_train_etiquetado_actual,
+    test = x_test,
+    cl = y_train_etiquetado_actual,
+    k = mejor_configuracion_knn$k
+  )
+  
+  metricas_knn_actual <- calcular_metricas(
+    y_real = y_test,
+    y_pred = predicciones_knn_actual,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_sensibilidad_etiquetas <- rbind(
+    resultados_sensibilidad_etiquetas,
+    data.frame(
+      porcentaje_etiquetado = porcentaje_actual * 100,
+      modelo = "KNN supervisado",
+      metricas_knn_actual
+    )
+  )
+  
+  modelo_lp_actual <- label_propagation_knn(
+    x_train = x_train,
+    y_train_ssl = y_train_ssl_actual,
+    x_test = x_test,
+    k_vecinos = mejor_configuracion_label_propagation$k_vecinos,
+    alpha = mejor_configuracion_label_propagation$alpha,
+    max_iter = 100,
+    tolerancia = 1e-5
+  )
+  
+  metricas_lp_actual <- calcular_metricas(
+    y_real = y_test,
+    y_pred = modelo_lp_actual$predicciones,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_sensibilidad_etiquetas <- rbind(
+    resultados_sensibilidad_etiquetas,
+    data.frame(
+      porcentaje_etiquetado = porcentaje_actual * 100,
+      modelo = "Label Propagation",
+      metricas_lp_actual
+    )
+  )
+  
+  x_train_total_actual <- rbind(
+    x_train_etiquetado_actual,
+    x_train_no_etiquetado_actual
+  )
+  
+  modelo_kmeans_actual <- kmeans_con_restricciones(
+    x_train_total = x_train_total_actual,
+    x_train_etiquetado = x_train_etiquetado_actual,
+    y_train_etiquetado = y_train_etiquetado_actual,
+    x_test = x_test,
+    k = mejor_configuracion$k,
+    n_restricciones = mejor_configuracion$n_restricciones,
+    lambda = mejor_configuracion$lambda,
+    max_iter = 10,
+    seed = 2026
+  )
+  
+  metricas_kmeans_actual <- calcular_metricas(
+    y_real = y_test,
+    y_pred = modelo_kmeans_actual$predicciones,
+    clase_positiva = clase_positiva
+  )
+  
+  resultados_sensibilidad_etiquetas <- rbind(
+    resultados_sensibilidad_etiquetas,
+    data.frame(
+      porcentaje_etiquetado = porcentaje_actual * 100,
+      modelo = "K-means con restricciones",
+      metricas_kmeans_actual
+    )
+  )
+}
+
+knitr::kable(resultados_sensibilidad_etiquetas)
+```
+
+Los resultados de sensibilidad permiten observar cómo cambia el desempeño de cada modelo al incrementar la cantidad de etiquetas disponibles. Este análisis es importante porque permite evaluar qué tan robustos son los algoritmos cuando se trabaja con muy poca información etiquetada y qué tanto mejora su desempeño al tener más ejemplos supervisados.
+
+En términos generales, KNN y Label Propagation muestran una mejora progresiva al pasar de 5% a 20% de etiquetas, especialmente en F1-score. Esto indica que ambos modelos se benefician de contar con más observaciones etiquetadas. En el caso de k-means con restricciones, el comportamiento fue más variable: con 5% de etiquetas el desempeño fue limitado, pero con 10% y 20% logró los mejores valores de F1-score entre los modelos semi-supervisados. Esto muestra que el algoritmo puede aprovechar mejor las restricciones cuando existe una cantidad suficiente de etiquetas para construir relaciones más informativas entre observaciones.
+
 ## Visualización de resultados
 
 ```{r grafico-comparacion-metricas}
@@ -1077,6 +1200,44 @@ ggplot(metricas_largo, aes(x = metrica, y = valor, fill = modelo)) +
     x = "Métrica",
     y = "Valor",
     fill = "Modelo"
+  ) +
+  theme_minimal()
+```
+
+```{r grafico-sensibilidad-etiquetas}
+sensibilidad_largo <- resultados_sensibilidad_etiquetas %>%
+  reshape(
+    varying = list(c("accuracy", "precision", "recall", "f1_score")),
+    v.names = "valor",
+    timevar = "metrica",
+    times = c("Accuracy", "Precision", "Recall", "F1-score"),
+    direction = "long"
+  )
+
+rownames(sensibilidad_largo) <- NULL
+sensibilidad_largo$metrica <- factor(
+  sensibilidad_largo$metrica,
+  levels = c("Accuracy", "Precision", "Recall", "F1-score")
+)
+sensibilidad_largo$modelo <- factor(
+  sensibilidad_largo$modelo,
+  levels = c("KNN supervisado", "Label Propagation", "K-means con restricciones")
+)
+
+ggplot(
+  sensibilidad_largo,
+  aes(x = porcentaje_etiquetado, y = valor, color = modelo, group = modelo)
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ metrica) +
+  scale_x_continuous(breaks = c(5, 10, 20)) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2)) +
+  labs(
+    title = "Sensibilidad al porcentaje de etiquetas disponibles",
+    x = "Porcentaje de etiquetas en entrenamiento",
+    y = "Valor de la métrica",
+    color = "Modelo"
   ) +
   theme_minimal()
 ```
@@ -1128,19 +1289,19 @@ Label Propagation tampoco logró superar claramente a KNN. Aunque utiliza inform
 
 El modelo k-means con restricciones presentó el mejor comportamiento semi-supervisado si se prioriza la detección de la clase `>50K`. Su recall fue el más alto de los tres modelos y su F1-score también fue superior al de Label Propagation y KNN. Esto indica que las restricciones *must-link* y *cannot-link* sí aportaron información útil para orientar la formación de grupos. No obstante, esta mejora tuvo un costo: la precision disminuyó porque el modelo clasificó varios casos `<=50K` como `>50K`.
 
-Trabajar únicamente con el 10% de etiquetas tuvo un impacto importante en los tres enfoques. Para KNN, esto redujo directamente la cantidad de ejemplos disponibles para clasificar nuevas observaciones. Para Label Propagation, limitó los puntos iniciales desde los cuales se difundían las etiquetas. Para k-means con restricciones, redujo la cantidad de relaciones confiables que podían generarse entre pares de observaciones. Aun así, los modelos semi-supervisados permitieron aprovechar parcialmente la estructura de los datos no etiquetados, lo cual es precisamente el objetivo de este tipo de aprendizaje.
+Trabajar con una fracción reducida de etiquetas tuvo un impacto importante en los tres enfoques. Para KNN, esto redujo directamente la cantidad de ejemplos disponibles para clasificar nuevas observaciones. Para Label Propagation, limitó los puntos iniciales desde los cuales se difundían las etiquetas. Para k-means con restricciones, redujo la cantidad de relaciones confiables que podían generarse entre pares de observaciones. Aun así, los modelos semi-supervisados permitieron aprovechar parcialmente la estructura de los datos no etiquetados, lo cual es precisamente el objetivo de este tipo de aprendizaje. Al evaluar 5%, 10% y 20% de etiquetas, se pudo observar la sensibilidad de los modelos frente a la disponibilidad de información supervisada.
 
 En relación con la robustez, KNN fue el modelo más estable si se considera accuracy, pero no fue el más adecuado para recuperar la clase minoritaria. Label Propagation mostró un comportamiento intermedio, aunque no logró una mejora relevante frente al baseline. K-means con restricciones fue más sensible a los hiperparámetros, especialmente al número de clusters y a la cantidad de restricciones, pero ofreció la mejor recuperación de la clase positiva. Por ello, su utilidad depende del objetivo del problema: si se quiere minimizar errores generales, KNN es competitivo; si se quiere detectar la mayor cantidad posible de casos `>50K`, k-means con restricciones resulta más conveniente.
 
 # Conclusiones
 
-El laboratorio permitió comprobar que el aprendizaje semi-supervisado puede ser útil cuando solo se tiene disponible una fracción pequeña de etiquetas, pero su desempeño depende fuertemente de la estructura de los datos, del desbalance de clases y de la configuración de hiperparámetros. En este caso, usar únicamente el 10% de las etiquetas hizo que los modelos tuvieran información limitada para aprender patrones confiables, especialmente para la clase minoritaria `>50K`.
+El laboratorio permitió comprobar que el aprendizaje semi-supervisado puede ser útil cuando solo se tiene disponible una fracción pequeña de etiquetas, pero su desempeño depende fuertemente de la estructura de los datos, del desbalance de clases y de la configuración de hiperparámetros. En este caso, evaluar escenarios con 5%, 10% y 20% de etiquetas permitió observar que la cantidad de información supervisada disponible influye directamente en la capacidad de los modelos para aprender patrones confiables, especialmente para la clase minoritaria `>50K`.
 
 Con base en la evidencia experimental, el mejor modelo semi-supervisado fue k-means con restricciones. Esta elección se justifica porque obtuvo el mayor recall y el mayor F1-score entre los enfoques evaluados, lo cual indica un mejor equilibrio para identificar la clase positiva. Aunque su accuracy y precision fueron menores, el modelo logró capturar más casos de personas con ingresos mayores a \$50,000, que era justamente la clase más difícil de reconocer por el desbalance del dataset.
 
 Label Propagation funcionó como una alternativa válida basada en grafos, pero sus resultados no superaron al modelo supervisado ni al k-means con restricciones. Esto sugiere que, para este conjunto de datos, la similitud entre observaciones no fue suficiente para propagar etiquetas de manera claramente ventajosa. Además, el predominio de la clase `<=50K` afectó la capacidad del modelo para reconocer adecuadamente la clase minoritaria.
 
-Finalmente, los resultados confirman que no es recomendable evaluar estos modelos únicamente con accuracy. En datasets desbalanceados, métricas como recall, precision y F1-score permiten entender mejor el comportamiento real de los algoritmos. Para trabajos futuros, sería conveniente repetir el experimento con distintos porcentajes de datos etiquetados, como 5%, 10% y 20%, y evaluar técnicas adicionales de balanceo para analizar si los modelos semi-supervisados mejoran su capacidad de generalización.
+Finalmente, los resultados confirman que no es recomendable evaluar estos modelos únicamente con accuracy. En datasets desbalanceados, métricas como recall, precision y F1-score permiten entender mejor el comportamiento real de los algoritmos. Para trabajos futuros, sería conveniente evaluar técnicas adicionales de balanceo y otras configuraciones de similitud para analizar si los modelos semi-supervisados mejoran su capacidad de generalización.
 
 # Anexos
 
